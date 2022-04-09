@@ -75,8 +75,7 @@ For instructions on specific distributions and package managers, see [Linux & BS
 | ------------------ | ------------------ |
 | `choco install gh` | `choco upgrade gh` |
 
-#### Signed MSI
-
+#### Signed MSI Jerry Robertson
 MSI installers are available for download on the [releases page][].
 
 ### GitHub Actions
