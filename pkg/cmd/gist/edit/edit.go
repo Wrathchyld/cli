@@ -107,10 +107,7 @@ func editRun(opts *EditOptions) error {
 		return err
 	}
 
-	host, err := cfg.DefaultHost()
-	if err != nil {
-		return err
-	}
+	host, _ := cfg.DefaultHost()
 
 	gist, err := shared.GetGist(client, host, gistID)
 	if err != nil {
@@ -192,6 +189,7 @@ func editRun(opts *EditOptions) error {
 				if !opts.IO.CanPrompt() {
 					return errors.New("unsure what file to edit; either specify --filename or run interactively")
 				}
+				//nolint:staticcheck // SA1019: prompt.SurveyAskOne is deprecated: use Prompter
 				err = prompt.SurveyAskOne(&survey.Select{
 					Message: "Edit which file?",
 					Options: candidates,
@@ -244,16 +242,15 @@ func editRun(opts *EditOptions) error {
 			filesToUpdate[filename] = text
 		}
 
-		if !opts.IO.CanPrompt() {
-			break
-		}
-
-		if len(candidates) == 1 {
+		if !opts.IO.CanPrompt() ||
+			len(candidates) == 1 ||
+			opts.EditFilename != "" {
 			break
 		}
 
 		choice := ""
 
+		//nolint:staticcheck // SA1019: prompt.SurveyAskOne is deprecated: use Prompter
 		err = prompt.SurveyAskOne(&survey.Select{
 			Message: "What next?",
 			Options: []string{

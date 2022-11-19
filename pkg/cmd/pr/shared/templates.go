@@ -9,22 +9,19 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/cli/cli/v2/api"
 	"github.com/cli/cli/v2/git"
-	"github.com/cli/cli/v2/internal/ghinstance"
+	fd "github.com/cli/cli/v2/internal/featuredetection"
 	"github.com/cli/cli/v2/internal/ghrepo"
 	"github.com/cli/cli/v2/pkg/githubtemplate"
 	"github.com/cli/cli/v2/pkg/prompt"
-	graphql "github.com/cli/shurcooL-graphql"
 	"github.com/shurcooL/githubv4"
 )
 
 type issueTemplate struct {
-	// I would have un-exported these fields, except `cli/shurcool-graphql` then cannot unmarshal them :/
 	Gname string `graphql:"name"`
 	Gbody string `graphql:"body"`
 }
 
 type pullRequestTemplate struct {
-	// I would have un-exported these fields, except `cli/shurcool-graphql` then cannot unmarshal them :/
 	Gname string `graphql:"filename"`
 	Gbody string `graphql:"body"`
 }
@@ -65,9 +62,9 @@ func listIssueTemplates(httpClient *http.Client, repo ghrepo.Interface) ([]Templ
 		"name":  githubv4.String(repo.RepoName()),
 	}
 
-	gql := graphql.NewClient(ghinstance.GraphQLEndpoint(repo.RepoHost()), httpClient)
+	gql := api.NewClientFromHTTP(httpClient)
 
-	err := gql.QueryNamed(context.Background(), "IssueTemplates", &query, variables)
+	err := gql.Query(repo.RepoHost(), "IssueTemplates", &query, variables)
 	if err != nil {
 		return nil, err
 	}
@@ -93,9 +90,9 @@ func listPullRequestTemplates(httpClient *http.Client, repo ghrepo.Interface) ([
 		"name":  githubv4.String(repo.RepoName()),
 	}
 
-	gql := graphql.NewClient(ghinstance.GraphQLEndpoint(repo.RepoHost()), httpClient)
+	gql := api.NewClientFromHTTP(httpClient)
 
-	err := gql.QueryNamed(context.Background(), "PullRequestTemplates", &query, variables)
+	err := gql.Query(repo.RepoHost(), "PullRequestTemplates", &query, variables)
 	if err != nil {
 		return nil, err
 	}
@@ -107,55 +104,6 @@ func listPullRequestTemplates(httpClient *http.Client, repo ghrepo.Interface) ([
 	}
 
 	return templates, nil
-}
-
-func hasTemplateSupport(httpClient *http.Client, hostname string, isPR bool) (bool, error) {
-	if !ghinstance.IsEnterprise(hostname) {
-		return true, nil
-	}
-
-	var featureDetection struct {
-		Repository struct {
-			Fields []struct {
-				Name string
-			} `graphql:"fields(includeDeprecated: true)"`
-		} `graphql:"Repository: __type(name: \"Repository\")"`
-		CreateIssueInput struct {
-			InputFields []struct {
-				Name string
-			}
-		} `graphql:"CreateIssueInput: __type(name: \"CreateIssueInput\")"`
-	}
-
-	gql := graphql.NewClient(ghinstance.GraphQLEndpoint(hostname), httpClient)
-	err := gql.QueryNamed(context.Background(), "IssueTemplates_fields", &featureDetection, nil)
-	if err != nil {
-		return false, err
-	}
-
-	var hasIssueQuerySupport bool
-	var hasIssueMutationSupport bool
-	var hasPullRequestQuerySupport bool
-
-	for _, field := range featureDetection.Repository.Fields {
-		if field.Name == "issueTemplates" {
-			hasIssueQuerySupport = true
-		}
-		if field.Name == "pullRequestTemplates" {
-			hasPullRequestQuerySupport = true
-		}
-	}
-	for _, field := range featureDetection.CreateIssueInput.InputFields {
-		if field.Name == "issueTemplate" {
-			hasIssueMutationSupport = true
-		}
-	}
-
-	if isPR {
-		return hasPullRequestQuerySupport, nil
-	} else {
-		return hasIssueQuerySupport && hasIssueMutationSupport, nil
-	}
 }
 
 type Template interface {
@@ -170,8 +118,8 @@ type templateManager struct {
 	allowFS    bool
 	isPR       bool
 	httpClient *http.Client
+	detector   fd.Detector
 
-	cachedClient   *http.Client
 	templates      []Template
 	legacyTemplate Template
 
@@ -180,20 +128,28 @@ type templateManager struct {
 }
 
 func NewTemplateManager(httpClient *http.Client, repo ghrepo.Interface, dir string, allowFS bool, isPR bool) *templateManager {
+	cachedClient := api.NewCachedHTTPClient(httpClient, time.Hour*24)
 	return &templateManager{
 		repo:       repo,
 		rootDir:    dir,
 		allowFS:    allowFS,
 		isPR:       isPR,
 		httpClient: httpClient,
+		detector:   fd.NewDetector(cachedClient, repo.RepoHost()),
 	}
 }
 
 func (m *templateManager) hasAPI() (bool, error) {
-	if m.cachedClient == nil {
-		m.cachedClient = api.NewCachedClient(m.httpClient, time.Hour*24)
+	if !m.isPR {
+		return true, nil
 	}
-	return hasTemplateSupport(m.cachedClient, m.repo.RepoHost(), m.isPR)
+
+	features, err := m.detector.RepositoryFeatures()
+	if err != nil {
+		return false, err
+	}
+
+	return features.PullRequestTemplateQuery, nil
 }
 
 func (m *templateManager) HasTemplates() (bool, error) {
@@ -229,6 +185,7 @@ func (m *templateManager) Choose() (Template, error) {
 	}
 
 	var selectedOption int
+	//nolint:staticcheck // SA1019: prompt.SurveyAskOne is deprecated: use Prompter
 	err := prompt.SurveyAskOne(&survey.Select{
 		Message: "Choose a template",
 		Options: append(names, blankOption),
@@ -277,7 +234,8 @@ func (m *templateManager) fetch() error {
 	dir := m.rootDir
 	if dir == "" {
 		var err error
-		dir, err = git.ToplevelDir()
+		gitClient := &git.Client{}
+		dir, err = gitClient.ToplevelDir(context.Background())
 		if err != nil {
 			return nil // abort silently
 		}

@@ -5,8 +5,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-
-	"github.com/cli/cli/v2/pkg/text"
+	"unicode"
 )
 
 const (
@@ -25,56 +24,57 @@ type Query struct {
 }
 
 type Qualifiers struct {
-	Archived         *bool
-	Assignee         string
-	Author           string
-	Base             string
-	Closed           string
-	Commenter        string
-	Comments         string
-	Created          string
-	Draft            *bool
-	Followers        string
-	Fork             string
-	Forks            string
-	GoodFirstIssues  string
-	Head             string
-	HelpWantedIssues string
-	In               []string
-	Interactions     string
-	Involves         string
-	Is               []string
-	Label            []string
-	Language         string
-	License          []string
-	Mentions         string
-	Merged           string
-	Milestone        string
-	No               []string
-	Org              string
-	Project          string
-	Pushed           string
-	Reactions        string
-	Repo             []string
-	Review           string
-	ReviewRequested  string
-	ReviewedBy       string
-	Size             string
-	Stars            string
-	State            string
-	Status           string
-	Team             string
-	Topic            []string
-	Topics           string
-	Type             string
-	Updated          string
+	Archived            *bool
+	Assignee            string
+	Author              string
+	Base                string
+	Closed              string
+	Commenter           string
+	Comments            string
+	Created             string
+	Draft               *bool
+	Followers           string
+	Fork                string
+	Forks               string
+	GoodFirstIssues     string
+	Head                string
+	HelpWantedIssues    string
+	In                  []string
+	Interactions        string
+	Involves            string
+	Is                  []string
+	Label               []string
+	Language            string
+	License             []string
+	Mentions            string
+	Merged              string
+	Milestone           string
+	No                  []string
+	Project             string
+	Pushed              string
+	Reactions           string
+	Repo                []string
+	Review              string
+	ReviewRequested     string
+	ReviewedBy          string
+	Size                string
+	Stars               string
+	State               string
+	Status              string
+	Team                string
+	TeamReviewRequested string
+	Topic               []string
+	Topics              string
+	Type                string
+	Updated             string
+	User                string
 }
 
 func (q Query) String() string {
 	qualifiers := formatQualifiers(q.Qualifiers)
 	keywords := formatKeywords(q.Keywords)
 	all := append(keywords, qualifiers...)
-	return strings.Join(all, " ")
+	return strings.TrimSpace(strings.Join(all, " "))
 }
 
 func (q Qualifiers) Map() map[string][]string {
@@ -83,7 +83,7 @@ func (q Qualifiers) Map() map[string][]string {
 	t := reflect.TypeOf(q)
 	for i := 0; i < v.NumField(); i++ {
 		fieldName := t.Field(i).Name
-		key := text.CamelToKebab(fieldName)
+		key := camelToKebab(fieldName)
 		typ := v.FieldByName(fieldName).Kind()
 		value := v.FieldByName(fieldName)
 		switch typ {
@@ -99,6 +99,9 @@ func (q Qualifiers) Map() map[string][]string {
 			}
 			s := []string{}
 			for i := 0; i < value.Len(); i++ {
+				if value.Index(i).IsZero() {
+					continue
+				}
 				s = append(s, fmt.Sprintf("%v", value.Index(i)))
 			}
 			m[key] = s
@@ -135,4 +138,30 @@ func formatKeywords(ks []string) []string {
 		ks[i] = quote(k)
 	}
 	return ks
+}
+
+// CamelToKebab returns a copy of the string s that is converted from camel case form to '-' separated form.
+func camelToKebab(s string) string {
+	var output []rune
+	var segment []rune
+	for _, r := range s {
+		if !unicode.IsLower(r) && string(r) != "-" && !unicode.IsNumber(r) {
+			output = addSegment(output, segment)
+			segment = nil
+		}
+		segment = append(segment, unicode.ToLower(r))
+	}
+	output = addSegment(output, segment)
+	return string(output)
+}
+
+func addSegment(inrune, segment []rune) []rune {
+	if len(segment) == 0 {
+		return inrune
+	}
+	if len(inrune) != 0 {
+		inrune = append(inrune, '-')
+	}
+	inrune = append(inrune, segment...)
+	return inrune
 }

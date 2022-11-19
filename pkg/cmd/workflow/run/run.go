@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"reflect"
 	"sort"
@@ -97,7 +97,7 @@ func NewCmdRun(f *cmdutil.Factory, runF func(*RunOptions) error) *cobra.Command 
 			}
 
 			if opts.JSON && !opts.IO.IsStdinTTY() {
-				jsonIn, err := ioutil.ReadAll(opts.IO.In)
+				jsonIn, err := io.ReadAll(opts.IO.In)
 				if err != nil {
 					return errors.New("failed to read from STDIN")
 				}
@@ -230,6 +230,7 @@ func collectInputs(yamlContent []byte) (map[string]string, error) {
 	inputAnswer := InputAnswer{
 		providedInputs: providedInputs,
 	}
+	//nolint:staticcheck // SA1019: prompt.SurveyAsk is deprecated: use Prompter
 	err = prompt.SurveyAsk(qs, &inputAnswer)
 	if err != nil {
 		return nil, err

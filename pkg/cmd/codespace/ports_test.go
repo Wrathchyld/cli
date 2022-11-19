@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/cli/cli/v2/internal/codespaces/api"
@@ -140,6 +141,9 @@ type joinWorkspaceResult struct {
 
 func runUpdateVisibilityTest(t *testing.T, portVisibilities []portVisibility, eventResponses []string, portsData []liveshare.PortNotification) error {
 	t.Helper()
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		t.Skip("fails intermittently in CI: https://github.com/cli/cli/issues/5663")
+	}
 
 	joinWorkspace := func(conn *jsonrpc2.Conn, req *jsonrpc2.Request) (interface{}, error) {
 		return joinWorkspaceResult{1}, nil
@@ -191,10 +195,10 @@ func runUpdateVisibilityTest(t *testing.T, portVisibilities []portVisibility, ev
 		},
 	}
 
-	io, _, _, _ := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 
 	a := &App{
-		io:        io,
+		io:        ios,
 		apiClient: mockApi,
 	}
 
@@ -243,7 +247,6 @@ func TestPendingOperationDisallowsForwardPorts(t *testing.T) {
 }
 
 func testingPortsApp() *App {
-	user := &api.User{Login: "monalisa"}
 	disabledCodespace := &api.Codespace{
 		Name:                           "disabledCodespace",
 		PendingOperation:               true,
@@ -256,15 +259,9 @@ func testingPortsApp() *App {
 			}
 			return nil, nil
 		},
-		GetUserFunc: func(_ context.Context) (*api.User, error) {
-			return user, nil
-		},
-		AuthorizedKeysFunc: func(_ context.Context, _ string) ([]byte, error) {
-			return []byte{}, nil
-		},
 	}
 
-	io, _, _, _ := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 
-	return NewApp(io, nil, apiMock, nil)
+	return NewApp(ios, nil, apiMock, nil)
 }

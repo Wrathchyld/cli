@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cli/cli/v2/internal/browser"
 	"github.com/cli/cli/v2/pkg/cmdutil"
 	"github.com/cli/cli/v2/pkg/iostreams"
 	"github.com/cli/cli/v2/pkg/search"
@@ -104,12 +105,12 @@ func TestNewCmdRepos(t *testing.T) {
 						In:               []string{"description", "readme"},
 						Language:         "language",
 						License:          []string{"license"},
-						Org:              "owner",
 						Pushed:           "updated",
 						Size:             "5",
 						Stars:            "6",
 						Topic:            []string{"topic"},
 						Topics:           "7",
+						User:             "owner",
 						Is:               []string{"public"},
 					},
 				},
@@ -118,9 +119,9 @@ func TestNewCmdRepos(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			io, _, _, _ := iostreams.Test()
+			ios, _, _, _ := iostreams.Test()
 			f := &cmdutil.Factory{
-				IOStreams: io,
+				IOStreams: ios,
 			}
 			argv, err := shlex.Split(tt.input)
 			assert.NoError(t, err)
@@ -148,6 +149,8 @@ func TestNewCmdRepos(t *testing.T) {
 }
 
 func TestReposRun(t *testing.T) {
+	var now = time.Date(2022, 2, 28, 12, 30, 0, 0, time.UTC)
+	var updatedAt = time.Date(2021, 2, 28, 12, 30, 0, 0, time.UTC)
 	var query = search.Query{
 		Keywords: []string{"cli"},
 		Kind:     "repositories",
@@ -157,7 +160,6 @@ func TestReposRun(t *testing.T) {
 			Topic: []string{"golang"},
 		},
 	}
-	var updatedAt = time.Date(2021, 2, 28, 12, 30, 0, 0, time.UTC)
 	tests := []struct {
 		errMsg     string
 		name       string
@@ -189,19 +191,6 @@ func TestReposRun(t *testing.T) {
 			wantStdout: "\nShowing 3 of 300 repositories\n\ntest/cli     of course  private, archived  Feb 28, 2021\ntest/cliing  wow        public, fork       Feb 28, 2021\ncli/cli      so much    internal           Feb 28, 2021\n",
 		},
 		{
-			name: "displays no results tty",
-			opts: &ReposOptions{
-				Query: query,
-				Searcher: &search.SearcherMock{
-					RepositoriesFunc: func(query search.Query) (search.RepositoriesResult, error) {
-						return search.RepositoriesResult{}, nil
-					},
-				},
-			},
-			tty:        true,
-			wantStdout: "\nNo repositories matched your search\n",
-		},
-		{
 			name: "displays results notty",
 			opts: &ReposOptions{
 				Query: query,
@@ -222,7 +211,7 @@ func TestReposRun(t *testing.T) {
 			wantStdout: "test/cli\tof course\tprivate, archived\t2021-02-28T12:30:00Z\ntest/cliing\twow\tpublic, fork\t2021-02-28T12:30:00Z\ncli/cli\tso much\tinternal\t2021-02-28T12:30:00Z\n",
 		},
 		{
-			name: "displays no results notty",
+			name: "displays no results",
 			opts: &ReposOptions{
 				Query: query,
 				Searcher: &search.SearcherMock{
@@ -231,6 +220,8 @@ func TestReposRun(t *testing.T) {
 					},
 				},
 			},
+			wantErr: true,
+			errMsg:  "no repositories matched your search",
 		},
 		{
 			name: "displays search error",
@@ -248,7 +239,7 @@ func TestReposRun(t *testing.T) {
 		{
 			name: "opens browser for web mode tty",
 			opts: &ReposOptions{
-				Browser: &cmdutil.TestBrowser{},
+				Browser: &browser.Stub{},
 				Query:   query,
 				Searcher: &search.SearcherMock{
 					URLFunc: func(query search.Query) string {
@@ -263,7 +254,7 @@ func TestReposRun(t *testing.T) {
 		{
 			name: "opens browser for web mode notty",
 			opts: &ReposOptions{
-				Browser: &cmdutil.TestBrowser{},
+				Browser: &browser.Stub{},
 				Query:   query,
 				Searcher: &search.SearcherMock{
 					URLFunc: func(query search.Query) string {
@@ -275,11 +266,12 @@ func TestReposRun(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		io, _, stdout, stderr := iostreams.Test()
-		io.SetStdinTTY(tt.tty)
-		io.SetStdoutTTY(tt.tty)
-		io.SetStderrTTY(tt.tty)
-		tt.opts.IO = io
+		ios, _, stdout, stderr := iostreams.Test()
+		ios.SetStdinTTY(tt.tty)
+		ios.SetStdoutTTY(tt.tty)
+		ios.SetStderrTTY(tt.tty)
+		tt.opts.IO = ios
+		tt.opts.Now = now
 		t.Run(tt.name, func(t *testing.T) {
 			err := reposRun(tt.opts)
 			if tt.wantErr {
